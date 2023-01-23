@@ -1,59 +1,110 @@
 package org.example;
 
-import java.util.*;
+import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 public class Main {
 
-    public static final Map<Integer, Integer> sizeToFreq = new TreeMap<>();
-    private final static int THREAD_COUNT = 1000;
-    private final static String ROUTE_STR = "RLRFR";
+    private static final int TEXT_COUNT = 10_000;
+    private static final int TEXT_LENGTH = 100_000;
+    private static final String ROUTE_STR = "abc";
+
+    private static final BlockingQueue<String> QUEUE_A = new ArrayBlockingQueue<>(100);
+    private static final BlockingQueue<String> QUEUE_B = new ArrayBlockingQueue<>(100);
+    private static final BlockingQueue<String> QUEUE_C = new ArrayBlockingQueue<>(100);
+    private static final Random random = new Random();
+
+    private static final Thread stringGenerator = new Thread(() -> {
+        try {
+            for (int i = 0; i < TEXT_COUNT; i++) {
+                String s = generateRoute(ROUTE_STR, TEXT_LENGTH);
+                if (i % 100 == 0) System.out.println("Положил " + i + " строку");
+                QUEUE_A.put(s);
+                QUEUE_B.put(s);
+                QUEUE_C.put(s);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    });
 
     public static void main(String[] args) throws InterruptedException {
-        Runnable task = () -> {
-            String route = generateRoute(ROUTE_STR, 100);
-            int count = (int) route.chars().filter(c -> c == 'R').count();
-            System.out.printf("Количество поворотов направо: %s\n", count);
-            updateFreq(count);
-        };
-
-        List<Thread> threads = new ArrayList<>();
-        for (int i = 0; i < THREAD_COUNT; i++) {
-            Thread thread = new Thread(task);
-            threads.add(thread);
-            thread.start();
-        }
-
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        printStatistic();
-    }
-
-    private static void printStatistic() {
-        Map.Entry<Integer, Integer> maxEntry = sizeToFreq.entrySet().stream().max(Comparator.comparing(Map.Entry::getValue)).orElse(null);
-
-        System.out.printf("Самое частое количество повторений %s (встретилось %s раз)\n", maxEntry.getKey(), maxEntry.getValue());
-        System.out.println("Другие размеры:");
-        sizeToFreq.entrySet().stream().filter(entry -> !entry.equals(maxEntry)).forEach(m -> System.out.printf("- %s (%s раз)\n", m.getKey(), m.getValue()));
-    }
-
-    private static void updateFreq(int count) {
-        synchronized (sizeToFreq) {
-            if (sizeToFreq.containsKey(count)) {
-                sizeToFreq.put(count, sizeToFreq.get(count) + 1);
-            } else {
-                sizeToFreq.put(count, 1);
-            }
-        }
+        stringGenerator.start();
+        LetterCounter aCounter = new LetterCounter('a', QUEUE_A);
+        LetterCounter bCounter = new LetterCounter('b', QUEUE_B);
+        LetterCounter cCounter = new LetterCounter('c', QUEUE_C);
+        aCounter.start();
+        bCounter.start();
+        cCounter.start();
+        aCounter.join();
+        bCounter.join();
+        cCounter.join();
+        System.out.println(aCounter);
+        System.out.println(bCounter);
+        System.out.println(cCounter);
     }
 
     public static String generateRoute(String letters, int length) {
-        Random random = new Random();
         StringBuilder route = new StringBuilder();
         for (int i = 0; i < length; i++) {
             route.append(letters.charAt(random.nextInt(letters.length())));
         }
         return route.toString();
+    }
+
+    private static class LetterCounter extends Thread {
+        private final char letter;
+        private final BlockingQueue<String> queue;
+        private String strWithMax = "";
+        private int maxLetters = 0;
+
+        public LetterCounter(char letter, BlockingQueue<String> queue) {
+            this.letter = letter;
+            this.queue = queue;
+        }
+
+        @Override
+        public void run() {
+            try {
+                for (int i = 0; i < TEXT_COUNT; i++) {
+                    if (i % 100 == 0) {
+                        System.out.printf("(%s): Обработал %s строку%n", letter, i);
+                    }
+                    String s = queue.take();
+                    strAnalysis(s);
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void strAnalysis(String s) {
+            int count = 0;
+            for (char c : s.toCharArray()) {
+                if (c == letter) {
+                    count++;
+                }
+            }
+            if (count > maxLetters) {
+                maxLetters = count;
+                strWithMax = s;
+            }
+        }
+
+        public String getStrWithMax() {
+            return strWithMax;
+        }
+
+        public int getMaxLetters() {
+            return maxLetters;
+        }
+
+        @Override
+        public String toString() {
+            return "LetterCounter{" + "letter=" + letter +
+                    //", max='" + strWithMax + '\'' +
+                    ", maxLetters=" + maxLetters + '}';
+        }
     }
 }
